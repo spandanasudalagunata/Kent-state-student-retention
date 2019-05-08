@@ -1,0 +1,879 @@
+---
+title: "Adv Data mining group project 2"
+output: html_document
+---
+
+### Libraries required
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(caret)
+library(MASS)
+library(pROC)
+library(ggplot2)
+library(pdp)
+library(bnstruct)
+library(DMwR)
+library(tidyr)
+library(rowr)
+library(glmnet)
+```
+
+# Loading the Data
+
+```{r}
+kent_rt <- as.data.frame(read.csv("COB RT Data.csv", na = c("", "---")))
+kent_ct <- as.data.frame(read.csv("COB CT Data.csv", na = c("", "---")))
+```
+
+# Data Cleaning
+## Removing the variables that are not significant 
+
+```{r}
+variables_to_rem <- (c("StudNum","GENDER","TERM", "CAMPUS", "STATE_CODE","ETHNICITY_CODE", "COUNTY_CODE","ZIP_CODE", "RESIDENCY_CODE", "LEGAL_COUNTRY", "LEGAL_COUNTRY_DESC", "HIGH_SCHOOL_CODE", "HIGH_SCHOOL_DESC", "TRANS_HRS", "F1SEQ1_COLLEGE","F1SEQ1_DEGREE_1","F1SEQ1_MAJOR", "F1SEQ2_MAJOR", "F1SEQ1_CUMGPA","F1SEQ1_CUMERNHRS", "F1SEQ2_COLLEGE", "F1SEQ2_CUMERNHRS", "F1SEQ2_MIDTERM_GPA","F1SEQ2_COLLEGE", "F1SEQ2_CUM_GPA", "S1SEQ1_CAMPUS","S1SEQ1_COLLEGE",  "S1SEQ1_MAJOR", "S1SEQ2_MAJOR", "S1SEQ2_COLLEGE", "S1SEQ2_CUMERNHRS", "S1SEQ2_MIDTERM_GPA", "S1SEQ2_CUM_GPA", "F2SEQ1_CAMPUS",  "F2SEQ1_COLLEGE", "F2SEQ1_MAJOR","F2SEQ2_MAJOR", "F2SEQ2_COLLEGE", "F2SEQ2_CUMERNHRS", "F2SEQ2_MIDTERM_GPA", "F2SEQ2_CUM_GPA", "S2SEQ1_CAMPUS", "S2SEQ1_COLLEGE", "S2SEQ1_MAJOR", "S2SEQ2_MAJOR", "S2SEQ2_COLLEGE", "S2SEQ2_CUMERNHRS", "S2SEQ2_MIDTERM_GPA", "S2SEQ2_CUM_GPA", "F3SEQ1_CAMPUS", "F3SEQ1_COLLEGE","F3SEQ1_MAJOR", "F3SEQ2_MAJOR","F3SEQ2_COLLEGE", "F3SEQ2_CUMERNHRS", "F3SEQ2_MIDTERM_GPA","F3SEQ2_CUM_GPA", "S3SEQ1_CAMPUS","S3SEQ1_COLLEGE", "S3SEQ1_MAJOR","S3SEQ2_MAJOR","S3SEQ2_COLLEGE","S3SEQ2_CUMERNHRS","S3SEQ2_MIDTERM_GPA","S3SEQ2_CUM_GPA","F4SEQ1_CAMPUS","F4SEQ1_COLLEGE","F4SEQ1_MAJOR","F4SEQ2_MAJOR","F4SEQ2_COLLEGE","F4SEQ2_CUMERNHRS","F4SEQ2_MIDTERM_GPA","F4SEQ2_CUM_GPA","S4SEQ1_CAMPUS","S4SEQ1_COLLEGE","S4SEQ1_MAJOR","S4SEQ2_MAJOR","S4SEQ2_COLLEGE","S4SEQ2_CUMERNHRS","S4SEQ2_CUM_GPA","F5SEQ1_CAMPUS","F5SEQ1_COLLEGE","F5SEQ1_MAJOR","F5SEQ2_MAJOR","F5SEQ2_COLLEGE","F5SEQ2_CUMERNHRS","F5SEQ2_MIDTERM_GPA","F5SEQ2_CUM_GPA","S5SEQ1_CAMPUS","S5SEQ1_COLLEGE", "S5SEQ1_MAJOR","S5SEQ2_MAJOR", "S5SEQ2_COLLEGE", "S5SEQ2_CUMERNHRS", "S5SEQ2_MIDTERM_GPA","S5SEQ2_CUM_GPA",  "F6SEQ1_CAMPUS","F6SEQ1_COLLEGE", "F6SEQ1_MAJOR","F6SEQ2_MAJOR","F6SEQ2_COLLEGE","S4SEQ2_MIDTERM_GPA","F6SEQ2_CUMERNHRS","F6SEQ2_MIDTERM_GPA","F6SEQ2_CUM_GPA","S6SEQ1_CAMPUS","S6SEQ1_COLLEGE","S6SEQ1_MAJOR","S6SEQ2_MAJOR","S6SEQ2_COLLEGE","S6SEQ2_CUMERNHRS","S6SEQ2_MIDTERM_GPA","S6SEQ2_CUM_GPA", "GRAD_TERM_BACHELOR", "GRAD_COLLEGE_BACHELOR", "GRAD_MAJOR_BACHELOR"))
+```
+
+
+```{r}
+kent_na <- kent_rt %>% dplyr::select(-c(variables_to_rem))
+```
+
+```{r}
+head(kent_na)
+graduated <- kent_na$GRADUATEIND
+```
+
+## KNN Imputation
+
+```{r warning=F, message=F, echo = T, results = 'hide'}
+kent_knn <- as.data.frame((kent_na[,1:16]))
+kent_knn <- knnImputation(kent_knn)
+kent_zero <- kent_na[,17:63] 
+kent_zero <- kent_zero %>% mutate_all(funs(replace_na(.,0)))
+```
+
+```{r}
+kent <- cbind(kent_knn, kent_zero)
+kent <- cbind(kent, graduated)
+```
+
+## Spring semester 1
+
+## Spring Semester 1 (retain)
+
+```{r}
+s1_r <- (kent[,1:20]) 
+s1_r <- cbind(s1_r,graduated)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(s1_r)), size = floor(0.80*nrow(s1_r)))
+sample_test <- sample(seq_len(nrow(s1_r)), size = floor(0.20*nrow(s1_r)))
+
+s1_r_train <- s1_r[sample_train, ]
+s1_r_test  <- s1_r[sample_test, ]
+
+```
+
+
+```{r}
+retain_s1 <- glm(RET_S1 ~ ., family = binomial, data = s1_r_train)
+predict_s1_r <- predict(retain_s1, s1_r_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s1_r > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s1_r_test$RET_S1, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s1_r_test$RET_S1, as.numeric(predict_s1_r))
+```
+
+### Partial dependency plot for Spring semester 1 (retain) - top 3 variables
+
+```{r}
+s1_r_imp <- varImp(retain_s1, scale = FALSE)
+```
+
+```{r}
+par_s1_r_erhr <- partial(retain_s1, pred.var = c("F1SEQ2_CURERNHRS"), chull = TRUE)
+plot_s1_r_erhr  <- autoplot(par_s1_r_erhr , contour = TRUE)
+par_s1_r_athr  <- partial(retain_s1, pred.var = c("F1SEQ2_CURATTHRS"), chull = TRUE)
+plot_s1_r_athr  <- autoplot(par_s1_r_athr, contour = TRUE)
+par_s1_r_act  <- partial(retain_s1, pred.var = c("ACT_WRITING"), chull = TRUE)
+plot_s1_r_act  <- autoplot(par_s1_r_act, contour = TRUE)
+grid.arrange(plot_s1_r_erhr, plot_s1_r_athr, plot_s1_r_act)
+```
+
+## Spring Semester 1 (graduate)
+
+```{r}
+s1_g <- s1_r %>% filter(RET_S1 == "Y")
+s1_g <- s1_g %>% dplyr::select(-(RET_S1))
+
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(s1_g)), size = floor(0.80*nrow(s1_g)))
+sample_test <- sample(seq_len(nrow(s1_g)), size = floor(0.20*nrow(s1_g)))
+
+s1_g_train <- s1_g[sample_train, ]
+s1_g_test  <- s1_g[sample_test, ]
+
+```
+
+
+```{r}
+graduate_s1 <- glm(graduated ~ ., family = binomial, data = s1_g_train)
+predict_s1_g <- predict(graduate_s1, s1_g_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s1_g > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s1_g_test$graduated, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s1_g_test$graduated, as.numeric(predict_s1_g))
+```
+
+
+## Fall Semester 2
+
+## Fall Semester 2 (retain)
+
+```{r}
+f2_r <- cbind(kent[,1:24], graduated) %>% filter(RET_S1 == "Y")
+f2_r <- f2_r %>% dplyr::select(-RET_S1)
+```
+
+```{r}
+sample_train <- sample(seq_len(nrow(f2_r)), size = floor(0.80*nrow(f2_r)))
+sample_test <- sample(seq_len(nrow(f2_r)), size = floor(0.20*nrow(f2_r)))
+
+f2_r_train <- f2_r[sample_train, ]
+f2_r_test  <- f2_r[sample_test, ]
+
+```
+
+
+```{r}
+retain_f2 <- glm(RET_F2 ~ ., family = binomial, data = f2_r_train)
+predict_f2_r <- predict(retain_f2, f2_r_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_f2_r > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = f2_r_test$RET_F2, mode = "prec_recall")
+```
+
+
+```{r}
+roc(f2_r_test$RET_F2, as.numeric(predict_f2_r))
+```
+
+## Fall Semester 2 (graduate)
+
+```{r}
+
+f2_g <- f2_r %>% filter(RET_F2 == "Y")
+f2_g <- f2_g %>% dplyr::select(-RET_F2)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(f2_g)), size = floor(0.80*nrow(f2_g)))
+sample_test <- sample(seq_len(nrow(f2_g)), size = floor(0.20*nrow(f2_g)))
+
+f2_g_train <- f2_g[sample_train, ]
+f2_g_test  <- f2_g[sample_test, ]
+
+```
+
+
+```{r}
+graduate_f2 <- glm(graduated ~ ., family = binomial, data = f2_g_train)
+predict_f2_g <- predict(graduate_f2, f2_g_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_f2_g > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = f2_g_test$graduated, mode = "prec_recall")
+```
+
+
+```{r}
+roc(f2_g_test$graduated, as.numeric(predict_f2_g))
+```
+## Spring Semester 2
+## Spring Semester 2(retain)
+
+```{r}
+s2_r <- cbind(kent[,1:28], graduated) %>% filter(RET_F2 == "Y")
+s2_r <- s2_r %>% dplyr::select(-RET_F2)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(s2_r)), size = floor(0.80*nrow(s2_r)))
+sample_test <- sample(seq_len(nrow(s2_r)), size = floor(0.20*nrow(s2_r)))
+
+s2_r_train <- s2_r[sample_train, ]
+s2_r_test  <- s2_r[sample_test, ]
+
+```
+
+
+```{r}
+retain_s2 <- glm(RET_S2 ~ ., family = binomial, data = s2_r_train)
+predict_s2_r <- predict(retain_s2, s2_r_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s2_r > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s2_r_test$RET_S2, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s2_r_test$RET_S2, as.numeric(predict_s2_r))
+```
+
+
+## Spring Semester 2 (graduate)
+
+```{r}
+s2_g <- s2_r %>% filter(RET_S2 == "Y")
+s2_g <- s2_g %>% dplyr::select(-RET_S2)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(s2_g)), size = floor(0.80*nrow(s2_g)))
+sample_test <- sample(seq_len(nrow(s2_g)), size = floor(0.20*nrow(s2_g)))
+
+s2_g_train <- s2_g[sample_train, ]
+s2_g_test  <- s2_g[sample_test, ]
+
+```
+
+
+```{r}
+graduate_s2 <- glm(graduated ~ ., family = binomial, data = s2_g_train)
+predict_s2_g <- predict(graduate_s2, s2_g_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s2_g > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s2_g_test$graduated, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s2_g_test$graduated, as.numeric(predict_s2_g))
+```
+
+## Fall semester 3
+
+## Fall Semester 3 (retain)
+
+```{r}
+f3_r <- cbind(kent[,1:32], graduated) %>% filter(RET_S2 == "Y")
+f3_r <- f3_r %>% dplyr::select(-RET_S2)
+```
+
+```{r}
+sample_train <- sample(seq_len(nrow(f3_r)), size = floor(0.80*nrow(f3_r)))
+sample_test <- sample(seq_len(nrow(f3_r)), size = floor(0.20*nrow(f3_r)))
+
+f3_r_train <- f3_r[sample_train, ]
+f3_r_test  <- f3_r[sample_test, ]
+
+```
+
+
+```{r}
+retain_f3 <- glm(RET_F3 ~ ., family = binomial, data = f3_r_train)
+predict_f3_r <- predict(retain_f3, f3_r_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_f3_r > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = f3_r_test$RET_F3, mode = "prec_recall")
+```
+
+
+```{r}
+roc(f3_r_test$RET_F3, as.numeric(predict_f3_r))
+```
+## Fall Semester 3 (graduate)
+
+```{r}
+
+f3_g <- f3_r %>% filter(RET_F3 == "Y")
+f3_g <- f3_g %>% dplyr::select(-RET_F3)
+```
+
+
+```{r}
+sample_train<- sample(seq_len(nrow(f3_g)), size = floor(0.80*nrow(f3_g)))
+sample_test <- sample(seq_len(nrow(f3_g)), size = floor(0.20*nrow(f3_g)))
+
+f3_g_train <- f3_g[sample_train, ]
+f3_g_test  <- f3_g[sample_test, ]
+
+```
+
+
+```{r}
+graduate_f3 <- glm(graduated ~ ., family = binomial, data = f3_g_train)
+predict_f3_g <- predict(graduate_f3, f3_g_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_f3_g > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = f3_g_test$graduated, mode = "prec_recall")
+```
+
+
+```{r}
+roc(f3_g_test$graduated, as.numeric(predict_f3_g))
+```
+
+## Spring semester 3
+
+# Spring Semester 3 (retain)
+
+```{r}
+s3_r <- cbind(kent[,1:36], graduated) %>% filter(RET_F3 == "Y")
+s3_r <- s3_r %>% dplyr::select(-RET_F3)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(s3_r)), size = floor(0.80*nrow(s3_r)))
+sample_test <- sample(seq_len(nrow(s3_r)), size = floor(0.20*nrow(s3_r)))
+
+s3_r_train <- s3_r[sample_train, ]
+s3_r_test  <- s3_r[sample_test, ]
+
+```
+
+
+```{r}
+retain_s3 <- glm(RET_S3 ~ ., family = binomial, data = s3_r_train)
+predict_s3_r <- predict(retain_s3, s3_r_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s3_r > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s3_r_test$RET_S3, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s3_r_test$RET_S3, as.numeric(predict_s3_r))
+```
+
+## Spring Semester 3 (graduate)
+
+```{r}
+s3_g <- s3_r %>% filter(RET_S3 == "Y")
+s3_g <- s3_g %>% dplyr::select(-RET_S3)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(s3_g)), size = floor(0.80*nrow(s3_g)))
+sample_test <- sample(seq_len(nrow(s3_g)), size = floor(0.20*nrow(s3_g)))
+
+s3_g_train <- s3_g[sample_train, ]
+s3_g_test  <- s3_g[sample_test, ]
+
+```
+
+
+```{r}
+graduate_s3 <- glm(graduated ~ ., family = binomial, data = s3_g_train)
+predict_s3_g <- predict(graduate_s3, s3_g_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s3_g > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s3_g_test$graduated, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s3_g_test$graduated, as.numeric(predict_s3_g))
+```
+## Fall semester 4
+
+## Fall Semester 4 (retain)
+
+```{r}
+f4_r <- cbind(kent[,1:40], graduated) %>% filter(RET_S3 == "Y")
+f4_r <- f4_r %>% dplyr::select(-RET_S3)
+```
+
+
+```{r}
+sample_train <- sample(seq_len(nrow(f4_r)), size = floor(0.80*nrow(f4_r)))
+sample_test <- sample(seq_len(nrow(f4_r)), size = floor(0.20*nrow(f4_r)))
+
+f4_r_train <- f4_r[sample_train, ]
+f4_r_test  <- f4_r[sample_test, ]
+
+```
+
+
+```{r}
+retain_f4 <- glm(RET_F4 ~ ., family = binomial, data = f4_r_train)
+predict_f4_r <- predict(retain_f4, f4_r_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_f4_r > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = f4_r_test$RET_F4, mode = "prec_recall")
+```
+
+
+```{r}
+roc(f4_r_test$RET_F4, as.numeric(predict_f4_r))
+```
+## Fall Semester 4 (graduate)
+
+```{r}
+
+f4_g <- f4_r %>% filter(RET_F4 == "Y")
+f4_g <- f4_g %>% dplyr::select(-RET_F4)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(f4_g)), size = floor(0.80*nrow(f4_g)))
+sample_test <- sample(seq_len(nrow(f4_g)), size = floor(0.20*nrow(f4_g)))
+
+f4_g_train <- f4_g[sample_train, ]
+f4_g_test  <- f4_g[sample_test, ]
+
+```
+
+
+```{r}
+graduate_f4 <- glm(graduated ~ ., family = binomial, data = f4_g_train)
+predict_f4_g <- predict(graduate_f4, f4_g_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_f4_g > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = f4_g_test$graduated, mode = "prec_recall")
+```
+
+
+```{r}
+roc(f4_g_test$graduated, as.numeric(predict_f4_g))
+```
+## Spring semester 4
+
+# Spring Semester 4(retain)
+
+```{r}
+s4_r <- cbind(kent[,1:44], graduated) %>% filter(RET_F4 == "Y")
+s4_r <- s4_r %>% dplyr::select(-RET_F4)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(s4_r)), size = floor(0.80*nrow(s4_r)))
+sample_test <- sample(seq_len(nrow(s4_r)), size = floor(0.20*nrow(s4_r)))
+
+s4_r_train <- s4_r[sample_train, ]
+s4_r_test  <- s4_r[sample_test, ]
+
+```
+
+
+```{r}
+retain_s4 <- glm(RET_S4 ~ ., family = binomial, data = s4_r_train)
+predict_s4_r <- predict(retain_s4, s4_r_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s4_r > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s4_r_test$RET_S4, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s4_r_test$RET_S4, as.numeric(predict_s4_r))
+```
+
+## Spring Semester 4 (graduate)
+
+```{r}
+s4_g <- s4_r %>% filter(RET_S4 == "Y")
+s4_g <- s4_g %>% dplyr::select(-RET_S4)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(s4_g)), size = floor(0.80*nrow(s4_g)))
+sample_test <- sample(seq_len(nrow(s4_g)), size = floor(0.20*nrow(s4_g)))
+
+s4_g_train <- s4_g[sample_train, ]
+s4_g_test  <- s4_g[sample_test, ]
+
+```
+
+
+```{r}
+graduate_s4 <- glm(graduated ~ ., family = binomial, data = s4_g_train)
+predict_s4_g <- predict(graduate_s4, s4_g_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s4_g > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s4_g_test$graduated, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s4_g_test$graduated, as.numeric(predict_s4_g))
+```
+
+
+## Fall semester 5
+
+## Fall Semester 5 (retain)
+
+```{r}
+f5_r <- cbind(kent[,1:48], graduated) %>% filter(RET_S4 == "Y")
+f5_r <- f5_r %>% dplyr::select(-RET_S4)
+```
+
+```{r}
+sample_train <- sample(seq_len(nrow(f5_r)), size = floor(0.80*nrow(f5_r)))
+sample_test <- sample(seq_len(nrow(f5_r)), size = floor(0.20*nrow(f5_r)))
+
+f5_r_train <- f5_r[sample_train, ]
+f5_r_test  <- f5_r[sample_test, ]
+
+```
+
+
+```{r}
+retain_f5 <- glm(RET_F5 ~ ., family = binomial, data = f5_r_train)
+predict_f5_r <- predict(retain_f5, f5_r_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_f5_r > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = f5_r_test$RET_F5, mode = "prec_recall")
+```
+
+
+```{r}
+roc(f5_r_test$RET_F5, as.numeric(predict_f5_r))
+```
+## Fall Semester 5 (graduate)
+
+```{r}
+
+f5_g <- f5_r %>% filter(RET_F5 == "Y")
+f5_g <- f5_g %>% dplyr::select(-RET_F5)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(f5_g)), size = floor(0.80*nrow(f5_g)))
+sample_test <- sample(seq_len(nrow(f5_g)), size = floor(0.20*nrow(f5_g)))
+
+f5_g_train <- f5_g[sample_train, ]
+f5_g_test  <- f5_g[sample_test, ]
+
+```
+
+
+```{r}
+graduate_f5 <- glm(graduated ~ ., family = binomial, data = f5_g_train)
+predict_f5_g <- predict(graduate_f5, f5_g_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_f5_g > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = f5_g_test$graduated, mode = "prec_recall")
+```
+
+
+```{r}
+roc(f5_g_test$graduated, as.numeric(predict_f5_g))
+```
+
+## Spring semester 5
+
+
+# Spring Semester 5 (retain)
+
+```{r}
+s5_r <- cbind(kent[,1:52], graduated) %>% filter(RET_F5 == "Y")
+s5_r <- s5_r %>% dplyr::select(-RET_F5)
+```
+
+
+```{r}
+sample_train<- sample(seq_len(nrow(s5_r)), size = floor(0.80*nrow(s5_r)))
+sample_test <- sample(seq_len(nrow(s5_r)), size = floor(0.20*nrow(s5_r)))
+
+s5_r_train <- s5_r[sample_train, ]
+s5_r_test  <- s5_r[sample_test, ]
+
+```
+
+
+```{r}
+retain_s5 <- glm(RET_S5 ~ ., family = binomial, data = s5_r_train)
+predict_s5_r <- predict(retain_s5, s5_r_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s5_r > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s5_r_test$RET_S5, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s5_r_test$RET_S5, as.numeric(predict_s5_r))
+```
+
+## Spring Semester 5 (graduate)
+
+```{r}
+s5_g <- s5_r %>% filter(RET_S5 == "Y")
+s5_g <- s5_g %>% dplyr::select(-RET_S5)
+```
+
+
+```{r}
+sample_train<- sample(seq_len(nrow(s5_g)), size = floor(0.80*nrow(s5_g)))
+sample_test <- sample(seq_len(nrow(s5_g)), size = floor(0.20*nrow(s5_g)))
+
+s5_g_train <- s5_g[sample_train, ]
+s5_g_test  <- s5_g[sample_test, ]
+
+```
+
+
+```{r}
+graduate_s5 <- glm(graduated ~ ., family = binomial, data = s5_g_train)
+predict_s5_g <- predict(graduate_s5, s5_g_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s5_g > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s5_g_test$graduated, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s5_g_test$graduated, as.numeric(predict_s5_g))
+```
+
+## Fall semester 6
+
+
+## Fall Semester 6 (retain)
+
+```{r}
+f6_r <- cbind(kent[,1:56], graduated) %>% filter(RET_S5 == "Y")
+f6_r <- f6_r %>% dplyr::select(-RET_S5)
+```
+
+```{r}
+sample_train <- sample(seq_len(nrow(f6_r)), size = floor(0.80*nrow(f6_r)))
+sample_test <- sample(seq_len(nrow(f6_r)), size = floor(0.20*nrow(f6_r)))
+
+f6_r_train <- f6_r[sample_train, ]
+f6_r_test  <- f6_r[sample_test, ]
+
+```
+
+
+```{r}
+retain_f6 <- glm(RET_F6 ~ ., family = binomial, data = f6_r_train)
+predict_f6_r <- predict(retain_f6, f6_r_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_f6_r > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = f6_r_test$RET_F6, mode = "prec_recall")
+```
+
+
+```{r}
+roc(f6_r_test$RET_F6, as.numeric(predict_f6_r))
+```
+## Fall Semester 6 (graduate)
+
+```{r}
+
+f6_g <- f6_r %>% filter(RET_F6 == "Y")
+f6_g <- f6_g %>% dplyr::select(-RET_F6)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(f6_g)), size = floor(0.80*nrow(f6_g)))
+sample_test <- sample(seq_len(nrow(f6_g)), size = floor(0.20*nrow(f6_g)))
+
+f6_g_train <- f6_g[sample_train, ]
+f6_g_test  <- f6_g[sample_test, ]
+
+```
+
+
+```{r}
+graduate_f6 <- glm(graduated ~ ., family = binomial, data = f6_g_train)
+predict_f6_g <- predict(graduate_f6, f6_g_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_f6_g > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = f6_g_test$graduated, mode = "prec_recall")
+```
+
+
+```{r}
+roc(f6_g_test$graduated, as.numeric(predict_f6_g))
+```
+## Spring semester 6
+
+
+# Spring Semester 6 (retain)
+
+```{r}
+s6_r <- cbind(kent[,1:60], graduated) %>% filter(RET_F6 == "Y")
+s6_r <- s6_r %>% dplyr::select(-RET_F6)
+```
+
+```{r}
+sample_train<- sample(seq_len(nrow(s6_r)), size = floor(0.80*nrow(s6_r)))
+sample_test <- sample(seq_len(nrow(s6_r)), size = floor(0.20*nrow(s6_r)))
+
+s6_r_train <- s6_r[sample_train, ]
+s6_r_test  <- s6_r[sample_test, ]
+
+```
+
+
+```{r}
+retain_s6 <- glm(RET_S6 ~ ., family = binomial, data = s6_r_train)
+predict_s6_r <- predict(retain_s6, s6_r_test, type = "response")
+```
+
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s6_r > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s6_r_test$RET_S6, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s6_r_test$RET_S6, as.numeric(predict_s6_r))
+```
+
+## Spring Semester 6 (graduate)
+
+```{r}
+s6_add <- kent %>% filter(RET_S1 == "Y") %>% filter(RET_F2 == "Y")  %>% filter(RET_S2 == "Y") %>% filter(RET_F3 == "Y") %>% filter(RET_S3 == "Y") %>% filter(RET_F4 == "Y") %>% filter(RET_S4 == "Y") %>% filter(RET_F5 == "Y") %>% filter(RET_S5 == "Y") %>% filter(RET_F6 == "Y") %>% filter(RET_S6 == "Y") %>% dplyr::select(c(S6SEQ2_CURATTHRS, S6SEQ2_CURERNHRS, S6SEQ2_TERM_GPA))
+nrow(s6_add)
+```
+
+```{r}
+s6_g <- s6_r %>% filter(RET_S6 == "Y")
+empty <- matrix(c(rep.int(NA,length(s6_add))), nrow = 67, ncol = length(s6_add))  
+colnames(empty) <- colnames(s6_add)  
+s6_add <- rbind(s6_add, empty)
+s6_g <- cbind(s6_g, s6_add)
+s6_g <- s6_g %>% dplyr::select(-c(URS_IND,ONCAMPUS_IND,FIRST_GEN_IND, PELL_ELIG_IND, INTERNATIONAL_IND, ATHLETE_IND, VETERAN_IND, HONORS_REGISTERED_IND, RET_S1, RET_F2, RET_S2, RET_F3, RET_S3, RET_F4, RET_S4, RET_F5, RET_S5, RET_S6))
+```
+
+
+```{r}
+sample_train<- sample(seq_len(nrow(s6_g)), size = floor(0.80*nrow(s6_g))) 
+sample_test <- sample(seq_len(nrow(s6_g)), size = floor(0.20*nrow(s6_g)))
+
+s6_g_train <- s6_g[sample_train, ] %>% as.data.frame()
+s6_g_test  <- s6_g[sample_test, ] %>% as.data.frame()
+```
+
+
+```{r}
+graduate_s6 <- glm(graduated ~ ., family = "binomial", data = s6_g_train)
+predict_s6_g <- predict(graduate_s6, s6_g_test, type = "response")
+```
+
+
+```{r}
+prob <- as.factor(ifelse(as.numeric(predict_s6_g > .25)==1, "Y", "N"))
+confusionMatrix(data = prob, reference = s6_g_test$graduated, mode = "prec_recall")
+```
+
+
+```{r}
+roc(s6_g_test$graduated, as.numeric(predict_s6_g))
+```
+
+
+## Partial Dependency plot for Spring semester 6 (graduate) - top 3 variables
+
+```{r}
+s6_g_imp <- varImp(graduate_s6, scale = FALSE)
+```
+
+```{r}
+par_s6_g_atthr <- partial(graduate_s6, pred.var = c("S6SEQ2_CURATTHRS"), chull = TRUE)
+plot_s6_g_atthr  <- autoplot(par_s6_g_atthr , contour = TRUE)
+par_s6_g_acts  <- partial(graduate_s6, pred.var = c("ACT_SOC"), chull = TRUE)
+plot_s6_g_acts  <- autoplot(par_s6_g_acts, contour = TRUE)
+par_s6_g_erhr  <- partial(graduate_s6, pred.var = c("F2SEQ2_CURERNHRS"), chull = TRUE)
+plot_s6_g_erhr  <- autoplot(par_s6_g_erhr, contour = TRUE)
+grid.arrange(plot_s6_g_atthr, plot_s6_g_acts, plot_s6_g_erhr)
+```
+
+
+
